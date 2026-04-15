@@ -20,11 +20,12 @@ const BOT_DEFS = [
 ];
 
 const SPAWN_RADIUS = 22;
-const MOVE_SPEED = 4;
-const SHOOT_RANGE = 55;
-const FIRE_RATE_MS = 1400;
-const ACCURACY_BASE = 0.45;
-const DAMAGE_PER_SHOT = 14;
+const MOVE_SPEED = 3;          // langsamer (vorher 4)
+const SHOOT_RANGE = 45;        // kuerzer (vorher 55)
+const FIRE_RATE_MS = 1800;     // langsamer (vorher 1400)
+const ACCURACY_BASE = 0.28;    // deutlich niedriger (vorher 0.45)
+const DAMAGE_PER_SHOT = 10;    // weniger Schaden (vorher 14)
+const HEADSHOT_CHANCE = 0.04;  // seltener (vorher 0.10)
 
 export class OfflineWorld {
   constructor({ scene, camera, state, HUD, WEAPONS, flashHurt }) {
@@ -145,7 +146,7 @@ export class OfflineWorld {
     const accuracy = ACCURACY_BASE * Math.max(0.3, 1 - dist / SHOOT_RANGE);
     if (Math.random() >= accuracy) return;
 
-    const headshot = Math.random() < 0.1;
+    const headshot = Math.random() < HEADSHOT_CHANCE;
     const damage = Math.round(DAMAGE_PER_SHOT * (headshot ? 2 : 1));
     this.state.health = Math.max(0, this.state.health - damage);
     this.HUD.setHealth(this.state.health);

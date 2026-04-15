@@ -117,6 +117,8 @@ function applyDamage(target, attacker, weaponKey, headshot) {
     const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
     dmg *= Math.max(0.2, 1 - dist / weapon.range);
   }
+  // Bots machen weniger Schaden als Spieler, damit das Spiel nicht zu brutal ist
+  if (attacker.isBot) dmg *= BOT_CONFIG.damageScale;
   dmg = Math.round(dmg);
 
   target.health = Math.max(0, target.health - dmg);
@@ -165,12 +167,14 @@ function applyDamage(target, attacker, weaponKey, headshot) {
 
 const BOT_CONFIG = {
   count: 5,            // Ziel-Anzahl an Bots
-  moveSpeed: 4,        // Einheiten pro Sekunde
+  moveSpeed: 3,        // Einheiten pro Sekunde (langsamer)
   aggroRange: 400,     // praktisch immer den Spieler verfolgen
-  shootRange: 55,      // ab wann Bots schiessen
-  fireRate: 1400,      // ms zwischen Schuessen
+  shootRange: 45,      // ab wann Bots schiessen (kuerzer)
+  fireRate: 1800,      // ms zwischen Schuessen (langsamer)
   tickMs: 100,         // AI-Tick-Intervall
-  accuracy: 0.45,      // Chance, dass ein Schuss trifft
+  accuracy: 0.28,      // Chance, dass ein Schuss trifft (deutlich reduziert)
+  headshotChance: 0.04,// Kopfschuss-Wahrscheinlichkeit (von 10% auf 4%)
+  damageScale: 0.7,    // Bot-Schaden nur 70% der Waffen-Basis
   spawnRadius: 22,     // Bots spawnen in Ring um (0,0,0)
   names: [
     'Zombie', 'Drohne', 'Ninja', 'Bandit', 'Wolf',
@@ -334,7 +338,7 @@ function botTick() {
       // Distanz-abhaengige Trefferchance
       const accuracy = BOT_CONFIG.accuracy * Math.max(0.3, 1 - closest.dist / BOT_CONFIG.shootRange);
       if (Math.random() < accuracy) {
-        const headshot = Math.random() < 0.1;
+        const headshot = Math.random() < BOT_CONFIG.headshotChance;
         applyDamage(target, bot, bot.weapon, headshot);
       }
     }
