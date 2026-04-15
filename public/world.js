@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 
 /**
- * Baut die 3D-Welt: Himmel, Boden, Gebaeude, Kisten, Baeume.
- * Gibt { scene, colliders } zurueck. `colliders` sind AABBs fuer
- * simple Kollisionspruefung gegen den Spieler und Raycasts.
+ * Baut die 3D-Welt: Himmel, Boden, Haeuser (mit Tueren), Kisten, Baeume.
+ * Gibt { scene, colliders, doors, botBuildingBoxes } zurueck.
+ *
+ * `colliders`       - AABB-Array fuer Spieler-Kollision + Raycasts
+ * `doors`           - Array mit Tuer-Objekten { pivot, center, isOpen, openAngle, collider }
+ * `botBuildingBoxes`- Vereinfachte 2D-Footprints (XZ) aller Gebaeude fuer Bot-KI
  */
+
+const DOOR_W = 2.4;   // Tuerbreite
+const DOOR_H = 2.6;   // Tuerhoehe (begehbar)
+const WALL_T = 0.4;   // Wanddicke
+
 export function buildWorld() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
@@ -38,19 +46,19 @@ export function buildWorld() {
   scene.add(grid);
 
   // Aussenmauer
-  const wallMat = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
+  const outerWallMat = new THREE.MeshLambertMaterial({ color: 0x6b7280 });
   const wallH = 6;
   const wallT = 2;
   const wallSize = 300;
-  const walls = [
+  const colliders = [];
+  const outerWalls = [
     [0, wallH / 2,  wallSize, wallSize * 2, wallH, wallT],
     [0, wallH / 2, -wallSize, wallSize * 2, wallH, wallT],
     [ wallSize, wallH / 2, 0, wallT, wallH, wallSize * 2],
     [-wallSize, wallH / 2, 0, wallT, wallH, wallSize * 2],
   ];
-  const colliders = [];
-  for (const [x, y, z, sx, sy, sz] of walls) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), wallMat);
+  for (const [x, y, z, sx, sy, sz] of outerWalls) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), outerWallMat);
     m.position.set(x, y, z);
     m.castShadow = true;
     m.receiveShadow = true;
@@ -58,39 +66,194 @@ export function buildWorld() {
     colliders.push(boxAABB(m));
   }
 
-  // Gebaeude in der Mitte und verstreut
+  // Materialien fuer Haeuser
   const buildingMat = new THREE.MeshLambertMaterial({ color: 0xd6b48a });
   const roofMat = new THREE.MeshLambertMaterial({ color: 0x8b3a2a });
-  // Das Zentrum bewusst frei lassen, damit Spieler und Bots sich sehen.
-  const buildings = [
-    [ 60, 0,  40, 14, 10, 14],
-    [-60, 0,  40, 18, 12, 12],
-    [ 60, 0, -40, 16, 11, 16],
-    [-60, 0, -40, 12, 9, 18],
-    [100, 0,   0, 16, 14, 10],
-    [-100, 0,  0, 10, 9, 20],
-    [  0, 0,  90, 22, 13, 10],
-    [  0, 0, -90, 10, 13, 22],
-  ];
-  for (const [x, y, z, sx, sy, sz] of buildings) {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), buildingMat);
-    body.position.set(x, sy / 2, z);
-    body.castShadow = true;
-    body.receiveShadow = true;
-    scene.add(body);
-    colliders.push(boxAABB(body));
+  const doorMat = new THREE.MeshLambertMaterial({ color: 0x7a4012 });
 
+  const doors = [];
+
+  // --- Hilfsfunktionen ---
+
+  /** Erstellt ein Wand-Segment-Mesh, fuegt es zur Szene + Collider-Array hinzu. */
+  function addWall(x, y, z, sx, sy, sz) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), buildingMat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+    const c = boxAABB(m);
+    colliders.push(c);
+    return c;
+  }
+
+  /** Erstellt die Decke (nur fuer Kollision/Optik, nicht fuer Bot-KI). */
+  function addCeil(x, y, z, sx, sz) {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.3, sz), buildingMat);
+    m.position.set(x, y, z);
+    m.receiveShadow = true;
+    scene.add(m);
+    colliders.push(boxAABB(m));
+  }
+
+  /**
+   * Baut ein hohles Haus mit Tueroeffnung in der dem Zentrum zugewandten Wand.
+   * @param {number} cx  - Mittelpunkt X
+   * @param {number} cz  - Mittelpunkt Z
+   * @param {number} wx  - Breite in X
+   * @param {number} wy  - Hoehe
+   * @param {number} wz  - Tiefe in Z
+   */
+  function addHouse(cx, cz, wx, wy, wz) {
+    // Welche Seite zeigt zur Kartenmitte?
+    let side;
+    if (Math.abs(cx) >= Math.abs(cz)) {
+      side = cx >= 0 ? 'west' : 'east';
+    } else {
+      side = cz > 0 ? 'north' : 'south';
+    }
+
+    // Hilfswerte
+    const sl_x = wx / 2 - DOOR_W / 2;   // Segmentlaenge fuer N/S-Waende mit Tuer
+    const sl_z = wz / 2 - DOOR_W / 2;   // Segmentlaenge fuer W/E-Waende mit Tuer
+    const topH = wy - DOOR_H;            // Sturz-Hoehe ueber der Tuer
+
+    // --- Nord-Wand (z = cz - wz/2) ---
+    if (side === 'north') {
+      addWall(cx - (wx + DOOR_W) / 4, wy / 2, cz - wz / 2, sl_x, wy, WALL_T);
+      addWall(cx + (wx + DOOR_W) / 4, wy / 2, cz - wz / 2, sl_x, wy, WALL_T);
+      if (topH > 0.1) addWall(cx, DOOR_H + topH / 2, cz - wz / 2, DOOR_W, topH, WALL_T);
+    } else {
+      addWall(cx, wy / 2, cz - wz / 2, wx, wy, WALL_T);
+    }
+
+    // --- Sued-Wand (z = cz + wz/2) ---
+    if (side === 'south') {
+      addWall(cx - (wx + DOOR_W) / 4, wy / 2, cz + wz / 2, sl_x, wy, WALL_T);
+      addWall(cx + (wx + DOOR_W) / 4, wy / 2, cz + wz / 2, sl_x, wy, WALL_T);
+      if (topH > 0.1) addWall(cx, DOOR_H + topH / 2, cz + wz / 2, DOOR_W, topH, WALL_T);
+    } else {
+      addWall(cx, wy / 2, cz + wz / 2, wx, wy, WALL_T);
+    }
+
+    // --- West-Wand (x = cx - wx/2) ---
+    if (side === 'west') {
+      addWall(cx - wx / 2, wy / 2, cz - (wz + DOOR_W) / 4, WALL_T, wy, sl_z);
+      addWall(cx - wx / 2, wy / 2, cz + (wz + DOOR_W) / 4, WALL_T, wy, sl_z);
+      if (topH > 0.1) addWall(cx - wx / 2, DOOR_H + topH / 2, cz, WALL_T, topH, DOOR_W);
+    } else {
+      addWall(cx - wx / 2, wy / 2, cz, WALL_T, wy, wz);
+    }
+
+    // --- Ost-Wand (x = cx + wx/2) ---
+    if (side === 'east') {
+      addWall(cx + wx / 2, wy / 2, cz - (wz + DOOR_W) / 4, WALL_T, wy, sl_z);
+      addWall(cx + wx / 2, wy / 2, cz + (wz + DOOR_W) / 4, WALL_T, wy, sl_z);
+      if (topH > 0.1) addWall(cx + wx / 2, DOOR_H + topH / 2, cz, WALL_T, topH, DOOR_W);
+    } else {
+      addWall(cx + wx / 2, wy / 2, cz, WALL_T, wy, wz);
+    }
+
+    // --- Decke (fuer Optik + Spieler-Kollision, nicht fuer Bots) ---
+    addCeil(cx, wy + 0.15, cz, wx - WALL_T * 2, wz - WALL_T * 2);
+
+    // --- Dach (Kegel) ---
     const roof = new THREE.Mesh(
-      new THREE.ConeGeometry(Math.max(sx, sz) * 0.75, sy * 0.5, 4),
+      new THREE.ConeGeometry(Math.max(wx, wz) * 0.75, wy * 0.4, 4),
       roofMat,
     );
-    roof.position.set(x, sy + sy * 0.25, z);
+    roof.position.set(cx, wy + wy * 0.2, cz);
     roof.rotation.y = Math.PI / 4;
     roof.castShadow = true;
     scene.add(roof);
+
+    // --- Tuer-Pivot + Panel ---
+    let pivotPos, panelOffset, panelGeo, openAngle, doorCenter;
+
+    if (side === 'north') {
+      // Tuer in der Nord-Wand, Scharnier links, schwingt nach innen (+z)
+      pivotPos = new THREE.Vector3(cx - DOOR_W / 2, 0, cz - wz / 2);
+      panelOffset = new THREE.Vector3(DOOR_W / 2, DOOR_H / 2, 0);
+      panelGeo = new THREE.BoxGeometry(DOOR_W, DOOR_H, WALL_T * 0.9);
+      openAngle = Math.PI / 2;
+      doorCenter = new THREE.Vector3(cx, DOOR_H / 2, cz - wz / 2);
+    } else if (side === 'south') {
+      // Tuer in der Sued-Wand, schwingt nach innen (-z)
+      pivotPos = new THREE.Vector3(cx - DOOR_W / 2, 0, cz + wz / 2);
+      panelOffset = new THREE.Vector3(DOOR_W / 2, DOOR_H / 2, 0);
+      panelGeo = new THREE.BoxGeometry(DOOR_W, DOOR_H, WALL_T * 0.9);
+      openAngle = -Math.PI / 2;
+      doorCenter = new THREE.Vector3(cx, DOOR_H / 2, cz + wz / 2);
+    } else if (side === 'west') {
+      // Tuer in der West-Wand, schwingt nach innen (+x)
+      pivotPos = new THREE.Vector3(cx - wx / 2, 0, cz - DOOR_W / 2);
+      panelOffset = new THREE.Vector3(0, DOOR_H / 2, DOOR_W / 2);
+      panelGeo = new THREE.BoxGeometry(WALL_T * 0.9, DOOR_H, DOOR_W);
+      openAngle = Math.PI / 2;
+      doorCenter = new THREE.Vector3(cx - wx / 2, DOOR_H / 2, cz);
+    } else {
+      // east: Tuer in der Ost-Wand, schwingt nach innen (-x)
+      pivotPos = new THREE.Vector3(cx + wx / 2, 0, cz - DOOR_W / 2);
+      panelOffset = new THREE.Vector3(0, DOOR_H / 2, DOOR_W / 2);
+      panelGeo = new THREE.BoxGeometry(WALL_T * 0.9, DOOR_H, DOOR_W);
+      openAngle = -Math.PI / 2;
+      doorCenter = new THREE.Vector3(cx + wx / 2, DOOR_H / 2, cz);
+    }
+
+    const doorPivot = new THREE.Group();
+    doorPivot.position.copy(pivotPos);
+    scene.add(doorPivot);
+
+    const doorMesh = new THREE.Mesh(panelGeo, doorMat);
+    doorMesh.position.copy(panelOffset);
+    doorMesh.castShadow = true;
+    doorMesh.receiveShadow = true;
+    doorPivot.add(doorMesh);
+
+    // AABB des geschlossenen Tuer-Panels berechnen
+    doorPivot.updateMatrixWorld(true);
+    const doorBox = new THREE.Box3().setFromObject(doorPivot);
+    const doorCollider = {
+      min: doorBox.min.clone(),
+      max: doorBox.max.clone(),
+      active: true,   // wird auf false gesetzt wenn Tuer offen ist
+    };
+    colliders.push(doorCollider);
+
+    doors.push({
+      pivot: doorPivot,
+      center: doorCenter.clone(),
+      isOpen: false,
+      isAnimating: false,
+      openAngle,
+      collider: doorCollider,
+    });
   }
 
-  // Kisten als Deckung - bewusst ausserhalb der Spawn- und Bot-Area
+  // Haeuser (cx, cz, breiteX, hoehe, tiefeZ)
+  const HOUSES = [
+    [ 60,  40, 14, 10, 14],
+    [-60,  40, 18, 12, 12],
+    [ 60, -40, 16, 11, 16],
+    [-60, -40, 12,  9, 18],
+    [100,   0, 16, 14, 10],
+    [-100,  0, 10,  9, 20],
+    [  0,  90, 22, 13, 10],
+    [  0, -90, 10, 13, 22],
+  ];
+  for (const [cx, cz, wx, wy, wz] of HOUSES) {
+    addHouse(cx, cz, wx, wy, wz);
+  }
+
+  // Bot-Kollisions-Footprints (einfache 2D-AABB der Hauser, kein Spalt)
+  const botBuildingBoxes = HOUSES.map(([cx, cz, wx, , wz]) => ({
+    minX: cx - wx / 2,
+    maxX: cx + wx / 2,
+    minZ: cz - wz / 2,
+    maxZ: cz + wz / 2,
+  }));
+
+  // Kisten als Deckung (ausserhalb der zentralen Kampfzone)
   const crateMat = new THREE.MeshLambertMaterial({ color: 0x8b6b3a });
   for (let i = 0; i < 30; i++) {
     const s = 1.5 + Math.random() * 1.2;
@@ -100,7 +263,6 @@ export function buildWorld() {
       s / 2,
       (Math.random() - 0.5) * 260,
     );
-    // Kisten ausserhalb der zentralen Kampfzone halten
     if (Math.hypot(c.position.x, c.position.z) < 50) continue;
     c.castShadow = true;
     c.receiveShadow = true;
@@ -151,7 +313,7 @@ export function buildWorld() {
     colliders.push(boxAABB(platform));
   }
 
-  return { scene, colliders };
+  return { scene, colliders, doors, botBuildingBoxes };
 }
 
 function boxAABB(mesh) {

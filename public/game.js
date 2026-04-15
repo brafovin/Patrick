@@ -17,7 +17,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-const { scene, colliders } = buildWorld();
+const { scene, colliders, doors, botBuildingBoxes } = buildWorld();
 
 // Truhen: werden mit "E" geoeffnet, geben Heiltraenke (+35 HP)
 const chestSystem = new ChestSystem(scene, {
@@ -98,7 +98,11 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyT') { e.preventDefault(); openChat(); }
   if (e.code === 'Tab') { e.preventDefault(); HUD.showScoreboard(true); }
   if (e.code === 'KeyE') {
-    if (controls.isLocked && !chatting) chestSystem.tryOpen(camera.position);
+    if (controls.isLocked && !chatting) {
+      chestSystem.tryOpen(camera.position);
+      const nd = nearestDoor(camera.position);
+      if (nd) toggleDoor(nd);
+    }
   }
 });
 document.addEventListener('keyup', (e) => {
@@ -364,6 +368,7 @@ const offlineWorld = new OfflineWorld({
   HUD,
   WEAPONS,
   flashHurt: () => flashHurt(),
+  botBuildingBoxes,
 });
 
 // Wenn wir nach 3 Sekunden noch keine Verbindung haben, schalten wir
@@ -556,6 +561,51 @@ function flashHurt() {
 }
 
 // --------------------------------------------------------------------------
+// Tuer-System
+// --------------------------------------------------------------------------
+
+/** Gibt die naechste Tuer zurueck, die nah genug ist (max 3.5m). */
+function nearestDoor(pos) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const door of doors) {
+    const d = pos.distanceTo(door.center);
+    if (d < bestDist) { bestDist = d; best = door; }
+  }
+  return bestDist < 3.5 ? best : null;
+}
+
+/** Oeffnet oder schliesst eine Tuer mit Animation. */
+function toggleDoor(door) {
+  if (door.isAnimating) return;
+  door.isAnimating = true;
+  const startAngle = door.pivot.rotation.y;
+  const endAngle = door.isOpen ? 0 : door.openAngle;
+  const duration = 480;
+  const startTime = performance.now();
+
+  // Kollisions-AABB sofort deaktivieren wenn Tuer aufgeht
+  if (!door.isOpen) door.collider.active = false;
+
+  function step() {
+    const t = Math.min(1, (performance.now() - startTime) / duration);
+    // ease-in-out
+    const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+    door.pivot.rotation.y = startAngle + (endAngle - startAngle) * ease;
+    if (t < 1) {
+      requestAnimationFrame(step);
+    } else {
+      door.pivot.rotation.y = endAngle;
+      door.isOpen = !door.isOpen;
+      door.isAnimating = false;
+      // Kollisions-AABB wieder aktivieren wenn Tuer zu ist
+      if (!door.isOpen) door.collider.active = true;
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+// --------------------------------------------------------------------------
 // Start-Menue Handling
 // --------------------------------------------------------------------------
 const menu = document.getElementById('menu');
@@ -598,10 +648,16 @@ function animate() {
   // Truhen: Deckel animieren, Traenke schweben, Pickup pruefen
   chestSystem.tick(dt, camera);
 
-  // Interaktions-Prompt fuer Truhen
+  // Interaktions-Prompt fuer Truhen und Tueren
   if (controls.isLocked) {
-    const d = chestSystem.nearestOpenableDistance(camera.position);
-    HUD.setInteractPrompt(d != null ? 'E  Truhe oeffnen' : '');
+    const chestDist = chestSystem.nearestOpenableDistance(camera.position);
+    const nearDoor = nearestDoor(camera.position);
+    const prompt = chestDist != null
+      ? 'E  Truhe oeffnen'
+      : nearDoor
+        ? (nearDoor.isOpen ? 'E  Tuer schliessen' : 'E  Tuer oeffnen')
+        : '';
+    HUD.setInteractPrompt(prompt);
   }
 
   // Automatische Waffe halten

@@ -190,6 +190,39 @@ const BOT_CONFIG = {
   colors: [0xef4444, 0xa855f7, 0xf97316, 0x14b8a6, 0x22d3ee, 0xeab308],
 };
 
+// Gebaeude-Footprints fuer Bot-Kollision (muss mit HOUSES in world.js uebereinstimmen)
+// Format: [cx, cz, halfWidth, halfDepth]
+const BOT_BUILDINGS = [
+  [ 60,  40,  7,  7],
+  [-60,  40,  9,  6],
+  [ 60, -40,  8,  8],
+  [-60, -40,  6,  9],
+  [100,   0,  8,  5],
+  [-100,  0,  5, 10],
+  [  0,  90, 11,  5],
+  [  0, -90,  5, 11],
+];
+
+/**
+ * Schiebt eine Bot-Position (Array [x,y,z]) aus Gebaeudefootprints heraus.
+ * Rein 2D im XZ-Raum.
+ */
+function resolveBotBuildings(pos) {
+  const r = 0.7;
+  for (const [cx, cz, hw, hd] of BOT_BUILDINGS) {
+    const minX = cx - hw - r, maxX = cx + hw + r;
+    const minZ = cz - hd - r, maxZ = cz + hd + r;
+    if (pos[0] <= minX || pos[0] >= maxX || pos[2] <= minZ || pos[2] >= maxZ) continue;
+    const oL = pos[0] - minX, oR = maxX - pos[0];
+    const oF = pos[2] - minZ, oB = maxZ - pos[2];
+    const m = Math.min(oL, oR, oF, oB);
+    if (m === oL)      pos[0] = minX;
+    else if (m === oR) pos[0] = maxX;
+    else if (m === oF) pos[2] = minZ;
+    else               pos[2] = maxZ;
+  }
+}
+
 let nextBotIndex = 0;
 
 function botSpawnPoint(idx) {
@@ -354,6 +387,8 @@ function botTick() {
       // In Karte halten
       bot.position[0] = Math.max(-140, Math.min(140, bot.position[0]));
       bot.position[2] = Math.max(-140, Math.min(140, bot.position[2]));
+      // Gebaeude-Kollision: Bot nicht durch Waende laufen lassen
+      resolveBotBuildings(bot.position);
       bot.rotation = [0, Math.atan2(-mx, -mz)];
     }
 

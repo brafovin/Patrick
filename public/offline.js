@@ -34,13 +34,14 @@ const SECTOR_INNER = 45;
 const SECTOR_OUTER = 115;
 
 export class OfflineWorld {
-  constructor({ scene, camera, state, HUD, WEAPONS, flashHurt }) {
+  constructor({ scene, camera, state, HUD, WEAPONS, flashHurt, botBuildingBoxes = [] }) {
     this.scene = scene;
     this.camera = camera;
     this.state = state;
     this.HUD = HUD;
     this.WEAPONS = WEAPONS;
     this.flashHurt = flashHurt;
+    this.botBuildingBoxes = botBuildingBoxes;
     this.bots = [];
     this.enabled = false;
   }
@@ -176,6 +177,8 @@ export class OfflineWorld {
         // In Karte halten
         bot.position.x = Math.max(-140, Math.min(140, bot.position.x));
         bot.position.z = Math.max(-140, Math.min(140, bot.position.z));
+        // Gebaeude-Kollision: Bot nicht durch Waende laufen lassen
+        this._resolveBotBuildings(bot.position);
       }
 
       // Mesh-Update (interpoliert in der Hauptschleife via targetPos)
@@ -289,6 +292,27 @@ export class OfflineWorld {
           bot.mesh.userData.targetPos.copy(bot.position);
         }
       }, 2500);
+    }
+  }
+
+  /**
+   * Schiebt einen Bot aus dem Inneren von Gebaeuden heraus (2D AABB, XZ-Ebene).
+   */
+  _resolveBotBuildings(pos) {
+    const r = 0.7;
+    for (const { minX, maxX, minZ, maxZ } of this.botBuildingBoxes) {
+      const eMinX = minX - r, eMaxX = maxX + r;
+      const eMinZ = minZ - r, eMaxZ = maxZ + r;
+      if (pos.x <= eMinX || pos.x >= eMaxX || pos.z <= eMinZ || pos.z >= eMaxZ) continue;
+      const oL = pos.x - eMinX;
+      const oR = eMaxX - pos.x;
+      const oF = pos.z - eMinZ;
+      const oB = eMaxZ - pos.z;
+      const m = Math.min(oL, oR, oF, oB);
+      if (m === oL)      pos.x = eMinX;
+      else if (m === oR) pos.x = eMaxX;
+      else if (m === oF) pos.z = eMinZ;
+      else               pos.z = eMaxZ;
     }
   }
 

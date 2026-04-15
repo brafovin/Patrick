@@ -108,6 +108,7 @@ export function resolveCollisions(pos, radius, height, colliders) {
   const max = new THREE.Vector3(pos.x + radius, pos.y + height, pos.z + radius);
 
   for (const c of colliders) {
+    if (c.active === false) continue;  // offene Tuer oder deaktivierter Collider
     if (
       max.x < c.min.x || min.x > c.max.x ||
       max.y < c.min.y || min.y > c.max.y ||
