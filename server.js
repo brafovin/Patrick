@@ -93,6 +93,246 @@ function broadcastScoreboard() {
 }
 
 // --------------------------------------------------------------------------
+// Schaden / Kill Helper (geteilt zwischen Spielern und Bots)
+// --------------------------------------------------------------------------
+
+function applyDamage(target, attacker, weaponKey, headshot) {
+  const weapon = WEAPONS[weaponKey];
+  if (!weapon || !target || target.health <= 0) return;
+
+  let dmg = weapon.damage * (headshot ? 2.0 : 1.0);
+  if (weaponKey === 'shotgun') {
+    const dx = target.position[0] - attacker.position[0];
+    const dy = target.position[1] - attacker.position[1];
+    const dz = target.position[2] - attacker.position[2];
+    const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    dmg *= Math.max(0.2, 1 - dist / weapon.range);
+  }
+  dmg = Math.round(dmg);
+
+  target.health = Math.max(0, target.health - dmg);
+  io.emit('damage', {
+    target: target.id,
+    attacker: attacker.id,
+    damage: dmg,
+    headshot,
+    health: target.health,
+  });
+
+  if (target.health <= 0) {
+    target.deaths += 1;
+    attacker.kills += 1;
+    io.emit('kill', {
+      killer: attacker.id,
+      victim: target.id,
+      killerName: attacker.name,
+      victimName: target.name,
+      weapon: weaponKey,
+      headshot,
+    });
+
+    setTimeout(() => {
+      const t = players.get(target.id);
+      if (!t) return;
+      t.health = 100;
+      t.position = randomSpawn();
+      io.emit('respawn', {
+        id: t.id,
+        position: t.position,
+        health: t.health,
+      });
+    }, 2500);
+
+    broadcastScoreboard();
+  }
+}
+
+// --------------------------------------------------------------------------
+// Bot-KI
+// --------------------------------------------------------------------------
+
+const BOT_CONFIG = {
+  count: 5,            // Ziel-Anzahl an Bots
+  moveSpeed: 4,        // Einheiten pro Sekunde
+  aggroRange: 90,      // ab wann Bots einen Spieler verfolgen
+  shootRange: 55,      // ab wann Bots schiessen
+  fireRate: 1400,      // ms zwischen Schuessen
+  tickMs: 100,         // AI-Tick-Intervall
+  accuracy: 0.55,      // Chance, dass ein Schuss trifft
+  names: [
+    'Zombie', 'Drohne', 'Ninja', 'Bandit', 'Wolf',
+    'Spectre', 'Jaeger', 'Phantom', 'Krieger', 'Shadow',
+  ],
+  colors: [0xef4444, 0xa855f7, 0xf97316, 0x14b8a6, 0x22d3ee, 0xeab308],
+};
+
+let nextBotIndex = 0;
+
+function createBot() {
+  const idx = ++nextBotIndex;
+  const id = 'bot-' + idx;
+  const namePool = BOT_CONFIG.names;
+  const name = '[BOT] ' + namePool[(idx - 1) % namePool.length];
+  const color = BOT_CONFIG.colors[(idx - 1) % BOT_CONFIG.colors.length];
+  const spawn = randomSpawn();
+
+  const bot = {
+    id,
+    name,
+    position: spawn,
+    rotation: [0, Math.random() * Math.PI * 2],
+    health: 100,
+    kills: 0,
+    deaths: 0,
+    weapon: 'rifle',
+    lastShotAt: 0,
+    color,
+    // Bot-interne Felder
+    isBot: true,
+    wanderTarget: randomWanderTarget(),
+    wanderChangeAt: Date.now() + 3000 + Math.random() * 4000,
+    targetId: null,
+  };
+  players.set(id, bot);
+  io.emit('playerJoined', {
+    id: bot.id,
+    name: bot.name,
+    position: bot.position,
+    rotation: bot.rotation,
+    health: bot.health,
+    kills: bot.kills,
+    deaths: bot.deaths,
+    weapon: bot.weapon,
+    color: bot.color,
+  });
+  console.log('[bot] spawn', bot.name);
+  return bot;
+}
+
+function randomWanderTarget() {
+  return [
+    (Math.random() - 0.5) * 240,
+    2,
+    (Math.random() - 0.5) * 240,
+  ];
+}
+
+function findClosestHuman(bot) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const [, p] of players) {
+    if (p.isBot || p.health <= 0) continue;
+    const dx = p.position[0] - bot.position[0];
+    const dz = p.position[2] - bot.position[2];
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  }
+  return best ? { target: best, dist: bestDist } : null;
+}
+
+function botTick() {
+  const now = Date.now();
+  const dt = BOT_CONFIG.tickMs / 1000;
+
+  // Bei Bedarf fehlende Bots nachspawnen
+  let active = 0;
+  for (const [, p] of players) if (p.isBot) active += 1;
+  while (active < BOT_CONFIG.count) {
+    createBot();
+    active += 1;
+  }
+
+  for (const [, bot] of players) {
+    if (!bot.isBot) continue;
+    if (bot.health <= 0) continue;
+
+    const closest = findClosestHuman(bot);
+
+    // Zielauswahl + Bewegung
+    let moveTo = null;
+    if (closest && closest.dist < BOT_CONFIG.aggroRange) {
+      bot.targetId = closest.target.id;
+      // Behalte Distanz: wenn zu nah, nicht weiter ranlaufen
+      if (closest.dist > 12) {
+        moveTo = closest.target.position;
+      }
+    } else {
+      bot.targetId = null;
+      if (now > bot.wanderChangeAt) {
+        bot.wanderTarget = randomWanderTarget();
+        bot.wanderChangeAt = now + 4000 + Math.random() * 4000;
+      }
+      const wx = bot.wanderTarget[0] - bot.position[0];
+      const wz = bot.wanderTarget[2] - bot.position[2];
+      if (Math.sqrt(wx * wx + wz * wz) < 3) {
+        bot.wanderTarget = randomWanderTarget();
+        bot.wanderChangeAt = now + 4000 + Math.random() * 4000;
+      }
+      moveTo = bot.wanderTarget;
+    }
+
+    if (moveTo) {
+      const dx = moveTo[0] - bot.position[0];
+      const dz = moveTo[2] - bot.position[2];
+      const d = Math.sqrt(dx * dx + dz * dz) || 1;
+      const step = Math.min(d, BOT_CONFIG.moveSpeed * dt);
+      bot.position = [
+        bot.position[0] + (dx / d) * step,
+        bot.position[1],
+        bot.position[2] + (dz / d) * step,
+      ];
+      bot.rotation = [0, Math.atan2(-dx, -dz)];
+    }
+
+    // Schiessen
+    if (
+      closest &&
+      closest.dist < BOT_CONFIG.shootRange &&
+      now - bot.lastShotAt > BOT_CONFIG.fireRate
+    ) {
+      bot.lastShotAt = now;
+      const target = closest.target;
+      // Blickrichtung auf den Gegner
+      const dx = target.position[0] - bot.position[0];
+      const dy = (target.position[1] + 1.5) - (bot.position[1] + 1.5);
+      const dz = target.position[2] - bot.position[2];
+      const len = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+      const dir = [dx / len, dy / len, dz / len];
+      bot.rotation = [0, Math.atan2(-dx, -dz)];
+
+      io.emit('shot', {
+        shooter: bot.id,
+        origin: [bot.position[0], bot.position[1] + 1.5, bot.position[2]],
+        direction: dir,
+        weapon: bot.weapon,
+      });
+
+      // Distanz-abhaengige Trefferchance
+      const accuracy = BOT_CONFIG.accuracy * Math.max(0.3, 1 - closest.dist / BOT_CONFIG.shootRange);
+      if (Math.random() < accuracy) {
+        const headshot = Math.random() < 0.1;
+        applyDamage(target, bot, bot.weapon, headshot);
+      }
+    }
+
+    // Bewegung broadcasten
+    io.emit('playerMoved', {
+      id: bot.id,
+      position: bot.position,
+      rotation: bot.rotation,
+      weapon: bot.weapon,
+    });
+  }
+}
+
+// Initiale Bots + Tick-Schleife starten
+for (let i = 0; i < BOT_CONFIG.count; i++) createBot();
+setInterval(botTick, BOT_CONFIG.tickMs);
+
+// --------------------------------------------------------------------------
 // Socket.IO Handler
 // --------------------------------------------------------------------------
 
@@ -175,7 +415,7 @@ io.on('connection', (socket) => {
     });
 
     // Trefferberechnung: Client reicht einen potentiellen Treffer ein,
-    // Server pruefts auf Plausibilitaet (Reichweite + Spieler existiert).
+    // Server pruefts auf Plausibilitaet (Reichweite + Ziel existiert).
     if (data.hit && typeof data.hit.target === 'string') {
       const target = players.get(data.hit.target);
       if (!target || target.id === player.id || target.health <= 0) return;
@@ -186,50 +426,7 @@ io.on('connection', (socket) => {
       const dist = Math.sqrt(dx * dx + dy * dy + dz * dz);
       if (dist > weapon.range + 5) return;
 
-      const headshot = !!data.hit.headshot;
-      let dmg = weapon.damage * (headshot ? 2.0 : 1.0);
-      // Distanz-Falloff fuer Schrotflinte
-      if (player.weapon === 'shotgun') {
-        dmg *= Math.max(0.2, 1 - dist / weapon.range);
-      }
-      dmg = Math.round(dmg);
-
-      target.health = Math.max(0, target.health - dmg);
-      io.emit('damage', {
-        target: target.id,
-        attacker: player.id,
-        damage: dmg,
-        headshot,
-        health: target.health,
-      });
-
-      if (target.health <= 0) {
-        target.deaths += 1;
-        player.kills += 1;
-        io.emit('kill', {
-          killer: player.id,
-          victim: target.id,
-          killerName: player.name,
-          victimName: target.name,
-          weapon: player.weapon,
-          headshot,
-        });
-
-        // Respawn nach kurzer Zeit
-        setTimeout(() => {
-          const t = players.get(target.id);
-          if (!t) return;
-          t.health = 100;
-          t.position = randomSpawn();
-          io.emit('respawn', {
-            id: t.id,
-            position: t.position,
-            health: t.health,
-          });
-        }, 2500);
-
-        broadcastScoreboard();
-      }
+      applyDamage(target, player, player.weapon, !!data.hit.headshot);
     }
   });
 
