@@ -19,13 +19,16 @@ const BOT_DEFS = [
   { name: '[BOT] Wolf',    color: 0x22d3ee },
 ];
 
-const SPAWN_RADIUS = 22;
-const MOVE_SPEED = 3;          // langsamer (vorher 4)
-const SHOOT_RANGE = 45;        // kuerzer (vorher 55)
-const FIRE_RATE_MS = 1800;     // langsamer (vorher 1400)
-const ACCURACY_BASE = 0.28;    // deutlich niedriger (vorher 0.45)
-const DAMAGE_PER_SHOT = 10;    // weniger Schaden (vorher 14)
-const HEADSHOT_CHANCE = 0.04;  // seltener (vorher 0.10)
+const SPAWN_RADIUS = 50;       // weiter verteilt (vorher 22)
+const MOVE_SPEED = 3;
+const AGGRO_RANGE = 95;        // Bots jagen nur aus Aggro-Range
+const SHOOT_RANGE = 45;
+const FIRE_RATE_MS = 1800;
+const ACCURACY_BASE = 0.28;
+const DAMAGE_PER_SHOT = 10;
+const HEADSHOT_CHANCE = 0.04;
+const MIN_SEPARATION = 14;     // Bots weichen einander aus
+const WANDER_RADIUS = 110;     // Radius fuer ziellose Bewegung
 
 export class OfflineWorld {
   constructor({ scene, camera, state, HUD, WEAPONS, flashHurt }) {
@@ -78,6 +81,12 @@ export class OfflineWorld {
       deaths: 0,
       lastShotAt: 0,
       mesh: null,
+      wanderTarget: new THREE.Vector3(
+        (Math.random() - 0.5) * WANDER_RADIUS * 2,
+        0,
+        (Math.random() - 0.5) * WANDER_RADIUS * 2,
+      ),
+      wanderChangeAt: performance.now() + 3000 + Math.random() * 4000,
     };
     const mesh = createRemotePlayer(bot.name, bot.color);
     mesh.position.copy(pos);
@@ -111,17 +120,63 @@ export class OfflineWorld {
       toPlayer.y = 0;
       const dist = toPlayer.length();
 
-      // Bots verfolgen den Spieler, halten aber Distanz
-      if (dist > 10) {
+      // Zielauswahl: Aggro oder Wander
+      let moveX = 0;
+      let moveZ = 0;
+      if (dist < AGGRO_RANGE && dist > 10) {
+        // Verfolgen, aber Distanz halten
         const dir = toPlayer.clone().normalize();
-        bot.position.x += dir.x * MOVE_SPEED * dt;
-        bot.position.z += dir.z * MOVE_SPEED * dt;
+        moveX = dir.x;
+        moveZ = dir.z;
+      } else if (dist >= AGGRO_RANGE) {
+        // Wandern: Ziel ggf. neu waehlen
+        if (now > bot.wanderChangeAt) {
+          const ang = Math.random() * Math.PI * 2;
+          const r = Math.random() * WANDER_RADIUS;
+          bot.wanderTarget.set(Math.cos(ang) * r, 0, Math.sin(ang) * r);
+          bot.wanderChangeAt = now + 4000 + Math.random() * 4000;
+        }
+        const toW = bot.wanderTarget.clone().sub(bot.position);
+        toW.y = 0;
+        const wl = toW.length();
+        if (wl < 3) {
+          // Nahes Ziel - neues waehlen
+          bot.wanderChangeAt = 0;
+        } else {
+          moveX = toW.x / wl;
+          moveZ = toW.z / wl;
+        }
+      }
+
+      // Abstossung von anderen Bots
+      for (const other of this.bots) {
+        if (other === bot || other.health <= 0) continue;
+        const odx = bot.position.x - other.position.x;
+        const odz = bot.position.z - other.position.z;
+        const od = Math.hypot(odx, odz);
+        if (od > 0 && od < MIN_SEPARATION) {
+          const s = (MIN_SEPARATION - od) / MIN_SEPARATION;
+          moveX += (odx / od) * s * 0.9;
+          moveZ += (odz / od) * s * 0.9;
+        }
+      }
+
+      const mlen = Math.hypot(moveX, moveZ);
+      if (mlen > 0.001) {
+        bot.position.x += (moveX / mlen) * MOVE_SPEED * dt;
+        bot.position.z += (moveZ / mlen) * MOVE_SPEED * dt;
+        // In Karte halten
+        bot.position.x = Math.max(-140, Math.min(140, bot.position.x));
+        bot.position.z = Math.max(-140, Math.min(140, bot.position.z));
       }
 
       // Mesh-Update (interpoliert in der Hauptschleife via targetPos)
       if (bot.mesh) {
         bot.mesh.userData.targetPos.set(bot.position.x, 0, bot.position.z);
-        bot.mesh.userData.targetRot = Math.atan2(-toPlayer.x, -toPlayer.z);
+        // Schauen in Laufrichtung wenn der Spieler weit weg ist, sonst auf Spieler
+        const lookX = (dist < AGGRO_RANGE) ? toPlayer.x : moveX;
+        const lookZ = (dist < AGGRO_RANGE) ? toPlayer.z : moveZ;
+        bot.mesh.userData.targetRot = Math.atan2(-lookX, -lookZ);
       }
 
       // Schiessen

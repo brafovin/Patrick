@@ -167,15 +167,17 @@ function applyDamage(target, attacker, weaponKey, headshot) {
 
 const BOT_CONFIG = {
   count: 5,            // Ziel-Anzahl an Bots
-  moveSpeed: 3,        // Einheiten pro Sekunde (langsamer)
-  aggroRange: 400,     // praktisch immer den Spieler verfolgen
-  shootRange: 45,      // ab wann Bots schiessen (kuerzer)
-  fireRate: 1800,      // ms zwischen Schuessen (langsamer)
+  moveSpeed: 3,        // Einheiten pro Sekunde
+  aggroRange: 95,      // ab wann Bots den Spieler verfolgen (vorher 400)
+  shootRange: 45,      // ab wann Bots schiessen
+  fireRate: 1800,      // ms zwischen Schuessen
   tickMs: 100,         // AI-Tick-Intervall
-  accuracy: 0.28,      // Chance, dass ein Schuss trifft (deutlich reduziert)
-  headshotChance: 0.04,// Kopfschuss-Wahrscheinlichkeit (von 10% auf 4%)
+  accuracy: 0.28,      // Chance, dass ein Schuss trifft
+  headshotChance: 0.04,// Kopfschuss-Wahrscheinlichkeit
   damageScale: 0.7,    // Bot-Schaden nur 70% der Waffen-Basis
-  spawnRadius: 22,     // Bots spawnen in Ring um (0,0,0)
+  spawnRadius: 50,     // Bots spawnen weiter verteilt (vorher 22)
+  minSeparation: 14,   // Bots weichen einander aus
+  wanderRadius: 110,   // Radius, in dem Bots ziellos herumlaufen
   names: [
     'Zombie', 'Drohne', 'Ninja', 'Bandit', 'Wolf',
     'Spectre', 'Jaeger', 'Phantom', 'Krieger', 'Shadow',
@@ -235,11 +237,28 @@ function createBot() {
 }
 
 function randomWanderTarget() {
-  return [
-    (Math.random() - 0.5) * 240,
-    2,
-    (Math.random() - 0.5) * 240,
-  ];
+  // Ziel auf einer Scheibe im Wander-Radius, nicht das ganze Feld
+  const angle = Math.random() * Math.PI * 2;
+  const r = Math.random() * BOT_CONFIG.wanderRadius;
+  return [Math.cos(angle) * r, 2, Math.sin(angle) * r];
+}
+
+/** Abstoss-Vektor, damit Bots nicht auf einem Haufen stehen. */
+function botSeparation(bot) {
+  let sx = 0;
+  let sz = 0;
+  for (const [, other] of players) {
+    if (!other.isBot || other === bot || other.health <= 0) continue;
+    const dx = bot.position[0] - other.position[0];
+    const dz = bot.position[2] - other.position[2];
+    const d = Math.sqrt(dx * dx + dz * dz);
+    if (d > 0 && d < BOT_CONFIG.minSeparation) {
+      const strength = (BOT_CONFIG.minSeparation - d) / BOT_CONFIG.minSeparation;
+      sx += (dx / d) * strength;
+      sz += (dz / d) * strength;
+    }
+  }
+  return [sx, sz];
 }
 
 function findClosestHuman(bot) {
@@ -300,16 +319,29 @@ function botTick() {
     }
 
     if (moveTo) {
-      const dx = moveTo[0] - bot.position[0];
-      const dz = moveTo[2] - bot.position[2];
+      let dx = moveTo[0] - bot.position[0];
+      let dz = moveTo[2] - bot.position[2];
       const d = Math.sqrt(dx * dx + dz * dz) || 1;
-      const step = Math.min(d, BOT_CONFIG.moveSpeed * dt);
+      // Hauptrichtung
+      let mx = (dx / d);
+      let mz = (dz / d);
+      // Abstossung von anderen Bots, damit sie sich nicht stapeln
+      const [sx, sz] = botSeparation(bot);
+      mx += sx * 0.9;
+      mz += sz * 0.9;
+      const ml = Math.sqrt(mx * mx + mz * mz) || 1;
+      mx /= ml;
+      mz /= ml;
+      const step = BOT_CONFIG.moveSpeed * dt;
       bot.position = [
-        bot.position[0] + (dx / d) * step,
+        bot.position[0] + mx * step,
         bot.position[1],
-        bot.position[2] + (dz / d) * step,
+        bot.position[2] + mz * step,
       ];
-      bot.rotation = [0, Math.atan2(-dx, -dz)];
+      // In Karte halten
+      bot.position[0] = Math.max(-140, Math.min(140, bot.position[0]));
+      bot.position[2] = Math.max(-140, Math.min(140, bot.position[2]));
+      bot.rotation = [0, Math.atan2(-mx, -mz)];
     }
 
     // Schiessen
