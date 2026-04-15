@@ -8,8 +8,8 @@
   <script type="importmap">
     {
       "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        "three": "/vendor/three/build/three.module.js",
+        "three/addons/": "/vendor/three/examples/jsm/"
       }
     }
   </script>
@@ -97,6 +97,44 @@
   <canvas id="game"></canvas>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // Friuher Fehler-Handler - faengt auch Module-Import-Fehler ab,
+    // damit "game.js" nicht stumm crasht.
+    (function() {
+      function writeDebug(id, text, color) {
+        var el = document.getElementById(id);
+        if (el) {
+          el.textContent = text;
+          if (color) el.style.color = color;
+        }
+      }
+      writeDebug('dbgConn', 'socket.io ' + (typeof io === 'undefined' ? 'FEHLT' : 'geladen'));
+      if (typeof io === 'undefined') {
+        writeDebug('dbgError', 'FEHLER: /socket.io/socket.io.js nicht erreichbar. Laeuft der Node-Server?', '#ff4444');
+      }
+      window.addEventListener('error', function (e) {
+        var msg = e.message || 'unknown';
+        if (e.filename) msg += ' @ ' + e.filename.split('/').pop() + ':' + e.lineno;
+        writeDebug('dbgError', 'FEHLER: ' + msg, '#ff4444');
+        console.error('[early error]', e);
+      }, true);
+      // Modul-Import-Fehler: type=module Scripts geben 'error' Events an
+      // das <script>-Element, aber window.onerror faengt sie auch ab.
+      window.addEventListener('unhandledrejection', function (e) {
+        writeDebug('dbgError', 'FEHLER (promise): ' + (e.reason && e.reason.message || e.reason), '#ff4444');
+      });
+      // Nach 4 Sekunden: wenn immer noch kein 'selfId' gesetzt, melde es.
+      setTimeout(function () {
+        var remote = document.getElementById('dbgRemote');
+        if (remote && remote.textContent === '0') {
+          var cur = document.getElementById('dbgError').textContent;
+          if (!cur) {
+            writeDebug('dbgError', 'Kein Init vom Server nach 4s. Browser-Konsole pruefen (F12).', '#ffaa44');
+          }
+        }
+      }, 4000);
+    })();
+  </script>
   <script type="module" src="game.js"></script>
 </body>
 </html>

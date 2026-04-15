@@ -24,6 +24,9 @@ const PORT = process.env.PORT || 3000;
 
 // Statische Dateien (Client) ausliefern
 app.use(express.static(path.join(__dirname, 'public')));
+// Three.js lokal ausliefern, damit der Client nicht von einem externen
+// CDN abhaengig ist (Firewalls / Offline-Umgebungen).
+app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules/three')));
 
 // --------------------------------------------------------------------------
 // Spielzustand
