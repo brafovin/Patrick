@@ -19,16 +19,19 @@ const BOT_DEFS = [
   { name: '[BOT] Wolf',    color: 0x22d3ee },
 ];
 
-const SPAWN_RADIUS = 50;       // weiter verteilt (vorher 22)
+const SPAWN_RADIUS = 80;          // weit am Kartenrand (vorher 50)
 const MOVE_SPEED = 3;
-const AGGRO_RANGE = 95;        // Bots jagen nur aus Aggro-Range
+const AGGRO_RANGE = 85;           // Bots jagen nur aus Aggro-Range
 const SHOOT_RANGE = 45;
 const FIRE_RATE_MS = 1800;
 const ACCURACY_BASE = 0.28;
 const DAMAGE_PER_SHOT = 10;
 const HEADSHOT_CHANCE = 0.04;
-const MIN_SEPARATION = 14;     // Bots weichen einander aus
-const WANDER_RADIUS = 110;     // Radius fuer ziellose Bewegung
+const MIN_SEPARATION = 28;        // Deutlich groesser (vorher 14)
+const SEPARATION_STRENGTH = 1.8;  // Staerker abstossen
+// Sektoren: jeder Bot bekommt seinen eigenen Kuchenstueck-Sektor
+const SECTOR_INNER = 45;
+const SECTOR_OUTER = 115;
 
 export class OfflineWorld {
   constructor({ scene, camera, state, HUD, WEAPONS, flashHurt }) {
@@ -66,28 +69,38 @@ export class OfflineWorld {
     this.HUD.updateScoreboard(this._scoreRows(), this.state.selfId);
   }
 
+  _pickSectorTarget(bot) {
+    const base = bot.sectorIdx * bot.sectorWidth;
+    const ang = base + Math.random() * bot.sectorWidth;
+    const r = SECTOR_INNER + Math.random() * (SECTOR_OUTER - SECTOR_INNER);
+    bot.wanderTarget.set(Math.cos(ang) * r, 0, Math.sin(ang) * r);
+    bot.wanderChangeAt = performance.now() + 4000 + Math.random() * 4000;
+  }
+
   _spawnBot(idx) {
     const def = BOT_DEFS[idx];
-    const angle = (idx / BOT_DEFS.length) * Math.PI * 2;
-    const r = SPAWN_RADIUS + (Math.random() - 0.5) * 4;
-    const pos = new THREE.Vector3(Math.cos(angle) * r, 0, Math.sin(angle) * r);
+    const sectorWidth = (Math.PI * 2) / BOT_DEFS.length;
+    const sectorIdx = idx;
+    // Spawn auf der Mittellinie des eigenen Sektors, nahe Aussenrand
+    const spawnAngle = sectorIdx * sectorWidth + sectorWidth / 2;
+    const r = SPAWN_RADIUS + (Math.random() - 0.5) * 6;
+    const pos = new THREE.Vector3(Math.cos(spawnAngle) * r, 0, Math.sin(spawnAngle) * r);
     const bot = {
       id: 'local-bot-' + idx,
       name: def.name,
       color: def.color,
+      sectorIdx,
+      sectorWidth,
       position: pos.clone(),
       health: 100,
       kills: 0,
       deaths: 0,
       lastShotAt: 0,
       mesh: null,
-      wanderTarget: new THREE.Vector3(
-        (Math.random() - 0.5) * WANDER_RADIUS * 2,
-        0,
-        (Math.random() - 0.5) * WANDER_RADIUS * 2,
-      ),
-      wanderChangeAt: performance.now() + 3000 + Math.random() * 4000,
+      wanderTarget: new THREE.Vector3(),
+      wanderChangeAt: 0,
     };
+    this._pickSectorTarget(bot);
     const mesh = createRemotePlayer(bot.name, bot.color);
     mesh.position.copy(pos);
     mesh.userData.targetPos = pos.clone();
@@ -129,19 +142,14 @@ export class OfflineWorld {
         moveX = dir.x;
         moveZ = dir.z;
       } else if (dist >= AGGRO_RANGE) {
-        // Wandern: Ziel ggf. neu waehlen
-        if (now > bot.wanderChangeAt) {
-          const ang = Math.random() * Math.PI * 2;
-          const r = Math.random() * WANDER_RADIUS;
-          bot.wanderTarget.set(Math.cos(ang) * r, 0, Math.sin(ang) * r);
-          bot.wanderChangeAt = now + 4000 + Math.random() * 4000;
-        }
+        // Wandern: Ziel innerhalb des eigenen Sektors waehlen
+        if (now > bot.wanderChangeAt) this._pickSectorTarget(bot);
         const toW = bot.wanderTarget.clone().sub(bot.position);
         toW.y = 0;
         const wl = toW.length();
         if (wl < 3) {
           // Nahes Ziel - neues waehlen
-          bot.wanderChangeAt = 0;
+          this._pickSectorTarget(bot);
         } else {
           moveX = toW.x / wl;
           moveZ = toW.z / wl;
@@ -156,8 +164,8 @@ export class OfflineWorld {
         const od = Math.hypot(odx, odz);
         if (od > 0 && od < MIN_SEPARATION) {
           const s = (MIN_SEPARATION - od) / MIN_SEPARATION;
-          moveX += (odx / od) * s * 0.9;
-          moveZ += (odz / od) * s * 0.9;
+          moveX += (odx / od) * s * SEPARATION_STRENGTH;
+          moveZ += (odz / od) * s * SEPARATION_STRENGTH;
         }
       }
 
@@ -269,12 +277,13 @@ export class OfflineWorld {
       this.HUD.addKillFeed('DU', bot.name, w.name, headshot);
       this._updatePlayerCount();
       this.HUD.updateScoreboard(this._scoreRows(), this.state.selfId);
-      // Respawn nach 2,5s
+      // Respawn nach 2,5s in eigenem Sektor
       setTimeout(() => {
         bot.health = 100;
-        const ang = Math.random() * Math.PI * 2;
-        const r = SPAWN_RADIUS + (Math.random() - 0.5) * 4;
-        bot.position.set(Math.cos(ang) * r, 0, Math.sin(ang) * r);
+        const spawnAngle = bot.sectorIdx * bot.sectorWidth + bot.sectorWidth / 2;
+        const r = SPAWN_RADIUS + (Math.random() - 0.5) * 6;
+        bot.position.set(Math.cos(spawnAngle) * r, 0, Math.sin(spawnAngle) * r);
+        this._pickSectorTarget(bot);
         if (bot.mesh) {
           bot.mesh.position.copy(bot.position);
           bot.mesh.userData.targetPos.copy(bot.position);

@@ -146,9 +146,9 @@ function applyDamage(target, attacker, weaponKey, headshot) {
       const t = players.get(target.id);
       if (!t) return;
       t.health = 100;
-      // Bots respawnen im Ring, Menschen an zufaelligen Punkten
+      // Bots respawnen in ihrem eigenen Sektor, Menschen zufaellig
       t.position = t.isBot
-        ? botSpawnPoint(Math.floor(Math.random() * BOT_CONFIG.count))
+        ? botSpawnPoint(t.sectorIdx)
         : randomSpawn();
       io.emit('respawn', {
         id: t.id,
@@ -166,18 +166,23 @@ function applyDamage(target, attacker, weaponKey, headshot) {
 // --------------------------------------------------------------------------
 
 const BOT_CONFIG = {
-  count: 5,            // Ziel-Anzahl an Bots
-  moveSpeed: 3,        // Einheiten pro Sekunde
-  aggroRange: 95,      // ab wann Bots den Spieler verfolgen (vorher 400)
-  shootRange: 45,      // ab wann Bots schiessen
-  fireRate: 1800,      // ms zwischen Schuessen
-  tickMs: 100,         // AI-Tick-Intervall
-  accuracy: 0.28,      // Chance, dass ein Schuss trifft
-  headshotChance: 0.04,// Kopfschuss-Wahrscheinlichkeit
-  damageScale: 0.7,    // Bot-Schaden nur 70% der Waffen-Basis
-  spawnRadius: 50,     // Bots spawnen weiter verteilt (vorher 22)
-  minSeparation: 14,   // Bots weichen einander aus
-  wanderRadius: 110,   // Radius, in dem Bots ziellos herumlaufen
+  count: 5,               // Ziel-Anzahl an Bots
+  moveSpeed: 3,           // Einheiten pro Sekunde
+  aggroRange: 85,         // ab wann Bots den Spieler verfolgen
+  shootRange: 45,         // ab wann Bots schiessen
+  fireRate: 1800,         // ms zwischen Schuessen
+  tickMs: 100,            // AI-Tick-Intervall
+  accuracy: 0.28,         // Chance, dass ein Schuss trifft
+  headshotChance: 0.04,   // Kopfschuss-Wahrscheinlichkeit
+  damageScale: 0.7,       // Bot-Schaden nur 70% der Waffen-Basis
+  spawnRadius: 80,        // Bots spawnen weit am Kartenrand (vorher 50)
+  minSeparation: 28,      // Deutlich groesserer Mindestabstand (vorher 14)
+  separationStrength: 1.8,// Staerke der Abstoss-Force
+  // Jeder Bot hat einen festen Winkel-Sektor auf der Karte, damit sie
+  // geografisch nicht kollidieren. Wander-Ziele bleiben im Sektor.
+  sectorWidth: (Math.PI * 2) / 5, // fuer 5 Bots 72 Grad
+  sectorInner: 45,        // innere Grenze des Wander-Rings
+  sectorOuter: 115,       // aeussere Grenze des Wander-Rings
   names: [
     'Zombie', 'Drohne', 'Ninja', 'Bandit', 'Wolf',
     'Spectre', 'Jaeger', 'Phantom', 'Krieger', 'Shadow',
@@ -201,7 +206,8 @@ function createBot() {
   const namePool = BOT_CONFIG.names;
   const name = '[BOT] ' + namePool[(idx - 1) % namePool.length];
   const color = BOT_CONFIG.colors[(idx - 1) % BOT_CONFIG.colors.length];
-  const spawn = botSpawnPoint((idx - 1) % BOT_CONFIG.count);
+  const sectorIdx = (idx - 1) % BOT_CONFIG.count;
+  const spawn = botSpawnPoint(sectorIdx);
 
   const bot = {
     id,
@@ -216,7 +222,8 @@ function createBot() {
     color,
     // Bot-interne Felder
     isBot: true,
-    wanderTarget: randomWanderTarget(),
+    sectorIdx,
+    wanderTarget: sectorWanderTarget(sectorIdx),
     wanderChangeAt: Date.now() + 3000 + Math.random() * 4000,
     targetId: null,
   };
@@ -236,11 +243,17 @@ function createBot() {
   return bot;
 }
 
-function randomWanderTarget() {
-  // Ziel auf einer Scheibe im Wander-Radius, nicht das ganze Feld
-  const angle = Math.random() * Math.PI * 2;
-  const r = Math.random() * BOT_CONFIG.wanderRadius;
-  return [Math.cos(angle) * r, 2, Math.sin(angle) * r];
+/**
+ * Waehlt ein Wander-Ziel innerhalb des angegebenen Sektors. Dadurch
+ * bleibt jeder Bot in seinem geografischen Bereich und die Bots
+ * ueberlappen sich nicht.
+ */
+function sectorWanderTarget(sectorIdx) {
+  const base = sectorIdx * BOT_CONFIG.sectorWidth;
+  const ang = base + Math.random() * BOT_CONFIG.sectorWidth;
+  const r = BOT_CONFIG.sectorInner +
+    Math.random() * (BOT_CONFIG.sectorOuter - BOT_CONFIG.sectorInner);
+  return [Math.cos(ang) * r, 2, Math.sin(ang) * r];
 }
 
 /** Abstoss-Vektor, damit Bots nicht auf einem Haufen stehen. */
@@ -306,13 +319,13 @@ function botTick() {
     } else {
       bot.targetId = null;
       if (now > bot.wanderChangeAt) {
-        bot.wanderTarget = randomWanderTarget();
+        bot.wanderTarget = sectorWanderTarget(bot.sectorIdx);
         bot.wanderChangeAt = now + 4000 + Math.random() * 4000;
       }
       const wx = bot.wanderTarget[0] - bot.position[0];
       const wz = bot.wanderTarget[2] - bot.position[2];
       if (Math.sqrt(wx * wx + wz * wz) < 3) {
-        bot.wanderTarget = randomWanderTarget();
+        bot.wanderTarget = sectorWanderTarget(bot.sectorIdx);
         bot.wanderChangeAt = now + 4000 + Math.random() * 4000;
       }
       moveTo = bot.wanderTarget;
@@ -327,8 +340,8 @@ function botTick() {
       let mz = (dz / d);
       // Abstossung von anderen Bots, damit sie sich nicht stapeln
       const [sx, sz] = botSeparation(bot);
-      mx += sx * 0.9;
-      mz += sz * 0.9;
+      mx += sx * BOT_CONFIG.separationStrength;
+      mz += sz * BOT_CONFIG.separationStrength;
       const ml = Math.sqrt(mx * mx + mz * mz) || 1;
       mx /= ml;
       mz /= ml;
