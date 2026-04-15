@@ -5,6 +5,7 @@ import { createRemotePlayer, updateNameTag, resolveCollisions } from './player.j
 import { WEAPONS, createViewModel, createMuzzleFlash, spawnTracer } from './weapons.js';
 import { HUD } from './hud.js';
 import { OfflineWorld } from './offline.js';
+import { ChestSystem } from './chests.js';
 
 // --------------------------------------------------------------------------
 // Setup: Renderer, Szene, Kamera
@@ -17,6 +18,20 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const { scene, colliders } = buildWorld();
+
+// Truhen: werden mit "E" geoeffnet, geben Heiltraenke (+35 HP)
+const chestSystem = new ChestSystem(scene, {
+  onHeal: (amount) => {
+    // Nichts heilen wenn bereits voll
+    if (state.health >= 100) return 0;
+    const before = state.health;
+    state.health = Math.min(100, state.health + amount);
+    const healed = state.health - before;
+    HUD.setHealth(state.health);
+    HUD.flashHeal();
+    return healed;
+  },
+});
 
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -82,6 +97,9 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyR') reload();
   if (e.code === 'KeyT') { e.preventDefault(); openChat(); }
   if (e.code === 'Tab') { e.preventDefault(); HUD.showScoreboard(true); }
+  if (e.code === 'KeyE') {
+    if (controls.isLocked && !chatting) chestSystem.tryOpen(camera.position);
+  }
 });
 document.addEventListener('keyup', (e) => {
   keys[e.code] = false;
@@ -576,6 +594,15 @@ function animate() {
 
   // Offline-Bot-AI
   offlineWorld.tick(dt);
+
+  // Truhen: Deckel animieren, Traenke schweben, Pickup pruefen
+  chestSystem.tick(dt, camera);
+
+  // Interaktions-Prompt fuer Truhen
+  if (controls.isLocked) {
+    const d = chestSystem.nearestOpenableDistance(camera.position);
+    HUD.setInteractPrompt(d != null ? 'E  Truhe oeffnen' : '');
+  }
 
   // Automatische Waffe halten
   if (mouseDown && controls.isLocked && !chatting) {

@@ -53,6 +53,22 @@ export const HUD = {
   showScoreboard(show) {
     $('scoreboard').classList.toggle('hidden', !show);
   },
+  setInteractPrompt(text) {
+    const el = $('interactPrompt');
+    if (!el) return;
+    if (text) {
+      el.textContent = text;
+      el.classList.add('show');
+    } else {
+      el.classList.remove('show');
+    }
+  },
+  flashHeal() {
+    document.body.classList.remove('healing');
+    // reflow trick, damit die Animation neu startet
+    void document.body.offsetWidth;
+    document.body.classList.add('healing');
+  },
   updateScoreboard(rows, selfId) {
     const body = $('scoreBody');
     body.innerHTML = '';
