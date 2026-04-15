@@ -86,6 +86,10 @@
 
   <div id="debugBox">
     <div><b>DEBUG</b></div>
+    <div>URL: <b id="dbgUrl">-</b></div>
+    <div>Protokoll: <b id="dbgProto">-</b></div>
+    <div>socket.io: <b id="dbgSocketLib">-</b></div>
+    <div>three.js: <b id="dbgThree">-</b></div>
     <div>Verbindung: <b id="dbgConn">-</b></div>
     <div>Gegner geladen: <b id="dbgRemote">0</b></div>
     <div>Naechster Bot: <b id="dbgNearest">-</b></div>
@@ -96,45 +100,85 @@
 
   <canvas id="game"></canvas>
 
-  <script src="/socket.io/socket.io.js"></script>
   <script>
-    // Friuher Fehler-Handler - faengt auch Module-Import-Fehler ab,
-    // damit "game.js" nicht stumm crasht.
-    (function() {
-      function writeDebug(id, text, color) {
+    // Frueher Diagnose- und Fehler-Handler. Laeuft VOR allen anderen
+    // Scripts und faengt fehlgeschlagene Ressourcen-Loads ab.
+    window.__errors = [];
+    (function () {
+      function write(id, text, color) {
         var el = document.getElementById(id);
         if (el) {
           el.textContent = text;
           if (color) el.style.color = color;
         }
       }
-      writeDebug('dbgConn', 'socket.io ' + (typeof io === 'undefined' ? 'FEHLT' : 'geladen'));
-      if (typeof io === 'undefined') {
-        writeDebug('dbgError', 'FEHLER: /socket.io/socket.io.js nicht erreichbar. Laeuft der Node-Server?', '#ff4444');
+      write('dbgUrl', location.href.slice(0, 40));
+      write('dbgProto', location.protocol);
+      if (location.protocol === 'file:') {
+        write('dbgError',
+          'FEHLER: Seite wurde ueber file:// geladen. Du musst ' +
+          '"npm start" ausfuehren und http://localhost:3000 oeffnen!',
+          '#ff4444');
       }
       window.addEventListener('error', function (e) {
-        var msg = e.message || 'unknown';
-        if (e.filename) msg += ' @ ' + e.filename.split('/').pop() + ':' + e.lineno;
-        writeDebug('dbgError', 'FEHLER: ' + msg, '#ff4444');
-        console.error('[early error]', e);
-      }, true);
-      // Modul-Import-Fehler: type=module Scripts geben 'error' Events an
-      // das <script>-Element, aber window.onerror faengt sie auch ab.
-      window.addEventListener('unhandledrejection', function (e) {
-        writeDebug('dbgError', 'FEHLER (promise): ' + (e.reason && e.reason.message || e.reason), '#ff4444');
-      });
-      // Nach 4 Sekunden: wenn immer noch kein 'selfId' gesetzt, melde es.
-      setTimeout(function () {
-        var remote = document.getElementById('dbgRemote');
-        if (remote && remote.textContent === '0') {
-          var cur = document.getElementById('dbgError').textContent;
-          if (!cur) {
-            writeDebug('dbgError', 'Kein Init vom Server nach 4s. Browser-Konsole pruefen (F12).', '#ffaa44');
-          }
+        var target = e.target;
+        if (target && (target.tagName === 'SCRIPT' || target.tagName === 'LINK' || target.tagName === 'IMG')) {
+          window.__errors.push('resource ' + target.tagName + ' ' + (target.src || target.href));
+          write('dbgError', 'Resource-Fehler: ' + (target.src || target.href), '#ff4444');
+        } else {
+          var msg = e.message || 'unknown';
+          if (e.filename) msg += ' @ ' + e.filename.split('/').pop() + ':' + e.lineno;
+          window.__errors.push(msg);
+          write('dbgError', 'JS-Fehler: ' + msg, '#ff4444');
         }
-      }, 4000);
+        console.error('[trap error]', e);
+      }, true);
+      window.addEventListener('unhandledrejection', function (e) {
+        var msg = (e.reason && e.reason.message) || String(e.reason);
+        window.__errors.push('promise ' + msg);
+        write('dbgError', 'Promise-Fehler: ' + msg, '#ff4444');
+      });
     })();
   </script>
+
+  <!--
+    socket.io-client: direkt aus /vendor/ (garantiert, solange Express
+    die Static-Files ausliefert). Wenn das fehlschlaegt, ist der Server
+    gar nicht erreichbar.
+  -->
+  <script src="/vendor/socket.io/socket.io.js"></script>
+
+  <script>
+    (function () {
+      // Diese Probes zeigen, welche Ressourcen erreichbar sind.
+      function probe(url, label, elId) {
+        try {
+          fetch(url, { method: 'GET', cache: 'no-store' })
+            .then(function (r) {
+              var el = document.getElementById(elId);
+              if (el) el.textContent = r.ok ? (label + ' ' + r.status + ' OK') : (label + ' ' + r.status);
+            })
+            .catch(function (err) {
+              var el = document.getElementById(elId);
+              if (el) { el.textContent = label + ' FEHLER'; el.style.color = '#ff4444'; }
+            });
+        } catch (e) {}
+      }
+      probe('/socket.io/socket.io.js', 'primary', 'dbgSocketLib');
+      probe('/vendor/three/build/three.module.js', '/vendor', 'dbgThree');
+
+      // Nach 5 Sekunden: wenn kein Init ankam, klare Meldung geben.
+      setTimeout(function () {
+        var remote = document.getElementById('dbgRemote');
+        var errEl = document.getElementById('dbgError');
+        if (remote && remote.textContent === '0' && errEl && !errEl.textContent) {
+          errEl.textContent = 'Kein Init vom Server nach 5s. Druecke F12 und schicke mir einen Screenshot der Konsole.';
+          errEl.style.color = '#ffaa44';
+        }
+      }, 5000);
+    })();
+  </script>
+
   <script type="module" src="game.js"></script>
 </body>
 </html>
