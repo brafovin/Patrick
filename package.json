@@ -1,0 +1,27 @@
+{
+  "name": "patrick-battle-royale",
+  "version": "1.0.0",
+  "description": "Ein Fortnite-inspiriertes Multiplayer-Shooter-Spiel mit freiem Laufen, Waffen und echten Spielern im Browser.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "fortnite",
+    "multiplayer",
+    "shooter",
+    "three.js",
+    "socket.io",
+    "game"
+  ],
+  "author": "Patrick",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

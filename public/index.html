@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patrick Battle Royale</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Startmenue -->
+  <div id="menu" class="overlay">
+    <div class="menu-card">
+      <h1>PATRICK <span>BATTLE ROYALE</span></h1>
+      <p class="tag">Ein Fortnite-inspiriertes Multiplayer-Shooter-Spiel im Browser.</p>
+      <label for="nameInput">Dein Spielername</label>
+      <input id="nameInput" type="text" placeholder="z.B. NinjaPatrick" maxlength="16" />
+      <button id="playBtn">&#9654; Spiel starten</button>
+      <div class="controls">
+        <h3>Steuerung</h3>
+        <ul>
+          <li><b>W A S D</b> - Laufen</li>
+          <li><b>Maus</b> - Umschauen / Zielen</li>
+          <li><b>Linke Maustaste</b> - Schiessen</li>
+          <li><b>Leertaste</b> - Springen</li>
+          <li><b>Shift</b> - Sprinten</li>
+          <li><b>1 / 2 / 3</b> - Waffe wechseln (Pistole / Gewehr / Schrotflinte)</li>
+          <li><b>R</b> - Nachladen</li>
+          <li><b>T</b> - Chat oeffnen</li>
+          <li><b>Tab</b> - Scoreboard anzeigen</li>
+          <li><b>Esc</b> - Maus freigeben</li>
+        </ul>
+      </div>
+      <p class="hint" id="connStatus">Verbinde mit Server...</p>
+    </div>
+  </div>
+
+  <!-- In-Game HUD -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"></div>
+
+    <div id="healthBox">
+      <div class="label">LEBEN</div>
+      <div class="bar"><div id="healthFill"></div></div>
+      <div id="healthText">100</div>
+    </div>
+
+    <div id="weaponBox">
+      <div id="weaponName">Gewehr</div>
+      <div id="ammoText">30 / 30</div>
+    </div>
+
+    <div id="miniScore">
+      <span>Kills: <b id="kCount">0</b></span>
+      <span>Tode: <b id="dCount">0</b></span>
+      <span>Spieler: <b id="pCount">1</b></span>
+    </div>
+
+    <div id="killFeed"></div>
+
+    <div id="chatBox">
+      <div id="chatLog"></div>
+      <input id="chatInput" type="text" maxlength="120" placeholder="Nachricht... (Enter zum Senden)" />
+    </div>
+
+    <div id="scoreboard" class="hidden">
+      <h2>Scoreboard</h2>
+      <table>
+        <thead><tr><th>#</th><th>Name</th><th>Kills</th><th>Tode</th></tr></thead>
+        <tbody id="scoreBody"></tbody>
+      </table>
+    </div>
+
+    <div id="deathScreen" class="hidden">
+      <h2>Du wurdest eliminiert!</h2>
+      <p id="deathMsg">Respawn in <span id="respawnTimer">3</span>s...</p>
+    </div>
+  </div>
+
+  <canvas id="game"></canvas>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script type="module" src="game.js"></script>
+</body>
+</html>
