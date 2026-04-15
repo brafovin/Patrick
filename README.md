@@ -14,7 +14,7 @@ und **Socket.IO** (Echtzeit-Multiplayer).
 - Scoreboard, Kill-Feed und In-Game-Chat
 - Autoritative Server-Logik fuer Hit-Verrechnung
 
-## Installation
+## Installation (lokal, mit echtem Multiplayer)
 
 ```bash
 npm install
@@ -23,7 +23,29 @@ npm start
 
 Server laeuft dann auf `http://localhost:3000`.
 Oeffne die Adresse in mehreren Browserfenstern (oder lass Freunde im gleichen
-Netzwerk `http://DEINE-IP:3000` aufrufen), um zusammen zu spielen.
+Netzwerk `http://DEINE-IP:3000` aufrufen), um zusammen zu spielen. `npm install`
+ruft per `postinstall` automatisch `scripts/vendor.js` auf und kopiert
+Three.js sowie den socket.io-Client nach `public/vendor/`.
+
+## Deployment auf Vercel (automatischer Offline-Modus)
+
+Vercel ist ein Static-Host und kann **keinen** persistenten Socket.IO-Server
+betreiben. Das Spiel erkennt das automatisch: Wenn nach 3 Sekunden kein
+Server antwortet, springt es in den **Offline-Modus** und spawnt 5
+Client-Side-Bots, gegen die du solo kaempfen kannst.
+
+Die `vercel.json` sagt Vercel, dass `public/` als statischer Output
+deployt werden soll und `node scripts/vendor.js` vorher ausgefuehrt wird
+um Three.js und socket.io nach `public/vendor/` zu kopieren.
+
+Um zu deployen:
+
+```bash
+npx vercel
+```
+
+oder via der Vercel-Web-UI das Repo verbinden. Keine Zusatzkonfiguration
+noetig.
 
 ## Steuerung
 

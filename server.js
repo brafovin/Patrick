@@ -22,14 +22,11 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// Statische Dateien (Client) ausliefern
+// Statische Dateien (Client) ausliefern. Vendor-Dateien (three, socket.io
+// client) werden von scripts/vendor.js nach public/vendor/ kopiert und
+// dann hier mit ausgeliefert - so funktioniert das auch auf statischen
+// Hosts wie Vercel.
 app.use(express.static(path.join(__dirname, 'public')));
-// Three.js lokal ausliefern, damit der Client nicht von einem externen
-// CDN abhaengig ist (Firewalls / Offline-Umgebungen).
-app.use('/vendor/three', express.static(path.join(__dirname, 'node_modules/three')));
-// Socket.IO-Client als Static-Fallback, falls /socket.io/socket.io.js
-// durch einen Proxy blockiert wird.
-app.use('/vendor/socket.io', express.static(path.join(__dirname, 'node_modules/socket.io/client-dist')));
 
 // Einfacher Health-Check
 app.get('/_health', (req, res) => {

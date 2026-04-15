@@ -4,6 +4,7 @@ import { buildWorld } from './world.js';
 import { createRemotePlayer, updateNameTag, resolveCollisions } from './player.js';
 import { WEAPONS, createViewModel, createMuzzleFlash, spawnTracer } from './weapons.js';
 import { HUD } from './hud.js';
+import { OfflineWorld } from './offline.js';
 
 // --------------------------------------------------------------------------
 // Setup: Renderer, Szene, Kamera
@@ -16,23 +17,6 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const { scene, colliders } = buildWorld();
-
-// DEBUG: Riesiger neonroter Pfeiler in der Kartenmitte, unmoeglich zu uebersehen.
-// Wenn du diesen nicht siehst, stimmt etwas Grundsaetzliches mit dem Rendering nicht.
-{
-  const pillar = new THREE.Mesh(
-    new THREE.CylinderGeometry(2, 2, 60, 16),
-    new THREE.MeshBasicMaterial({ color: 0xff0066 }),
-  );
-  pillar.position.set(0, 30, 0);
-  scene.add(pillar);
-  const beacon = new THREE.Mesh(
-    new THREE.SphereGeometry(3, 16, 16),
-    new THREE.MeshBasicMaterial({ color: 0xffff00 }),
-  );
-  beacon.position.set(0, 62, 0);
-  scene.add(beacon);
-}
 
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -214,6 +198,14 @@ function fireWeapon() {
     }
   }
 
+  // Im Offline-Modus: Treffer lokal abwickeln, keine Netzwerk-Nachricht.
+  if (offlineWorld.enabled) {
+    if (bestHit && typeof bestHit.targetId === 'string' && bestHit.targetId.startsWith('local-bot-')) {
+      offlineWorld.onPlayerHit(bestHit.targetId, state.weaponKey, bestHit.headshot);
+    }
+    return;
+  }
+
   const payload = {
     origin: [origin.x, origin.y, origin.z],
     direction: [baseDir.x, baseDir.y, baseDir.z],
@@ -221,7 +213,7 @@ function fireWeapon() {
   if (bestHit) {
     payload.hit = { target: bestHit.targetId, headshot: bestHit.headshot };
   }
-  if (socket) socket.emit('shoot', payload);
+  if (socket && socket.connected) socket.emit('shoot', payload);
 }
 
 /**
@@ -345,14 +337,46 @@ function updateMovement(dt) {
 }
 
 // --------------------------------------------------------------------------
-// Netzwerk-Anbindung
+// Netzwerk-Anbindung (mit automatischem Offline-Fallback)
 // --------------------------------------------------------------------------
-const socket = typeof io !== 'undefined' ? io() : null;
+const offlineWorld = new OfflineWorld({
+  scene,
+  camera,
+  state,
+  HUD,
+  WEAPONS,
+  flashHurt: () => flashHurt(),
+});
+
+// Wenn wir nach 3 Sekunden noch keine Verbindung haben, schalten wir
+// auf Offline-Modus um - so funktioniert das Spiel auch auf statischen
+// Hosts wie Vercel, wo kein Socket.IO-Server laeuft.
+const OFFLINE_TIMEOUT_MS = 3000;
+let offlineTimer = null;
+function scheduleOfflineCheck(reason) {
+  if (offlineTimer) clearTimeout(offlineTimer);
+  offlineTimer = setTimeout(() => {
+    if (!state.selfId) offlineWorld.start(reason);
+  }, OFFLINE_TIMEOUT_MS);
+}
+
+// Socket.IO-Client ggf. mit moderatem Timeout erzeugen, damit wir
+// zuegig in den Offline-Modus fallen koennen.
+let socket = null;
+try {
+  if (typeof io !== 'undefined') {
+    socket = io({ timeout: 2500, reconnectionAttempts: 2 });
+  }
+} catch (err) {
+  console.warn('[socket] konnte nicht initialisiert werden:', err);
+}
 const connStatus = document.getElementById('connStatus');
 
 if (!socket) {
-  connStatus.textContent = 'FEHLER: Socket.IO nicht geladen';
+  connStatus.textContent = 'Kein Server - starte Offline-Modus...';
+  offlineWorld.start('kein socket.io');
 } else {
+  scheduleOfflineCheck('kein init');
   socket.on('connect', () => {
     connStatus.textContent = 'Verbunden! Gib deinen Namen ein und starte.';
     const dc = document.getElementById('dbgConn');
@@ -364,10 +388,17 @@ if (!socket) {
     if (dc) dc.textContent = 'getrennt';
   });
   socket.on('connect_error', (err) => {
-    showError('socket: ' + err.message);
+    console.warn('[socket] connect_error', err.message);
+    // Auf Offline-Modus umschalten, falls noch nicht passiert
+    if (!offlineWorld.enabled && !state.selfId) {
+      offlineWorld.start('connect_error');
+      if (offlineTimer) clearTimeout(offlineTimer);
+    }
   });
 
   socket.on('init', (data) => {
+    if (offlineTimer) { clearTimeout(offlineTimer); offlineTimer = null; }
+    if (offlineWorld.enabled) return; // schon im Offline-Modus, kein Server-Init uebernehmen
     state.selfId = data.selfId;
     if (data.spawn) {
       camera.position.set(data.spawn[0], data.spawn[1] + 1.5, data.spawn[2]);
@@ -543,6 +574,9 @@ function animate() {
 
   if (controls.isLocked && !chatting) updateMovement(dt);
 
+  // Offline-Bot-AI
+  offlineWorld.tick(dt);
+
   // Automatische Waffe halten
   if (mouseDown && controls.isLocked && !chatting) {
     const w = WEAPONS[state.weaponKey];
@@ -557,9 +591,9 @@ function animate() {
     g.rotation.y += diff * Math.min(1, dt * 12);
   }
 
-  // Netzwerk: Position ~20x/s senden
+  // Netzwerk: Position ~20x/s senden (nur online)
   const now = performance.now();
-  if (socket && state.selfId && now - state.lastNetSent > 50) {
+  if (!offlineWorld.enabled && socket && socket.connected && state.selfId && now - state.lastNetSent > 50) {
     state.lastNetSent = now;
     const euler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
     socket.emit('move', {

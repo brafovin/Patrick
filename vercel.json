@@ -1,0 +1,7 @@
+{
+  "version": 2,
+  "buildCommand": "node scripts/vendor.js",
+  "outputDirectory": "public",
+  "cleanUrls": true,
+  "trailingSlash": false
+}

@@ -5,7 +5,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node server.js"
+    "dev": "node server.js",
+    "build": "node scripts/vendor.js",
+    "postinstall": "node scripts/vendor.js"
   },
   "keywords": [
     "fortnite",

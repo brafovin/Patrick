@@ -5,3 +5,5 @@ yarn-error.log*
 .env
 .DS_Store
 dist/
+# Vendor-Dateien werden per "npm run build" / postinstall generiert
+public/vendor/
