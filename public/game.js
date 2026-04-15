@@ -17,6 +17,23 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
 const { scene, colliders } = buildWorld();
 
+// DEBUG: Riesiger neonroter Pfeiler in der Kartenmitte, unmoeglich zu uebersehen.
+// Wenn du diesen nicht siehst, stimmt etwas Grundsaetzliches mit dem Rendering nicht.
+{
+  const pillar = new THREE.Mesh(
+    new THREE.CylinderGeometry(2, 2, 60, 16),
+    new THREE.MeshBasicMaterial({ color: 0xff0066 }),
+  );
+  pillar.position.set(0, 30, 0);
+  scene.add(pillar);
+  const beacon = new THREE.Mesh(
+    new THREE.SphereGeometry(3, 16, 16),
+    new THREE.MeshBasicMaterial({ color: 0xffff00 }),
+  );
+  beacon.position.set(0, 62, 0);
+  scene.add(beacon);
+}
+
 const camera = new THREE.PerspectiveCamera(
   75,
   window.innerWidth / window.innerHeight,
@@ -338,9 +355,16 @@ if (!socket) {
 } else {
   socket.on('connect', () => {
     connStatus.textContent = 'Verbunden! Gib deinen Namen ein und starte.';
+    const dc = document.getElementById('dbgConn');
+    if (dc) dc.textContent = 'verbunden (' + socket.id.slice(0, 6) + ')';
   });
   socket.on('disconnect', () => {
     connStatus.textContent = 'Verbindung verloren.';
+    const dc = document.getElementById('dbgConn');
+    if (dc) dc.textContent = 'getrennt';
+  });
+  socket.on('connect_error', (err) => {
+    showError('socket: ' + err.message);
   });
 
   socket.on('init', (data) => {
@@ -545,6 +569,70 @@ function animate() {
     });
   }
 
-  renderer.render(scene, camera);
+  // Debug-HUD aktualisieren (einmal pro Sekunde reicht)
+  if (!animate._lastDbg || now - animate._lastDbg > 200) {
+    animate._lastDbg = now;
+    updateDebugHud();
+  }
+
+  try {
+    renderer.render(scene, camera);
+  } catch (err) {
+    showError('render: ' + err.message);
+    throw err;
+  }
 }
+
+function updateDebugHud() {
+  const dbgRemote = document.getElementById('dbgRemote');
+  const dbgNearest = document.getElementById('dbgNearest');
+  const dbgCam = document.getElementById('dbgCam');
+  const dbgLook = document.getElementById('dbgLook');
+  if (!dbgRemote) return;
+  dbgRemote.textContent = state.remote.size;
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const [id, g] of state.remote) {
+    const dx = g.position.x - camera.position.x;
+    const dz = g.position.z - camera.position.z;
+    const d = Math.hypot(dx, dz);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = { id, g };
+    }
+  }
+  if (nearest) {
+    dbgNearest.textContent = nearest.id + ' @ ' +
+      nearest.g.position.x.toFixed(0) + ',' +
+      nearest.g.position.y.toFixed(0) + ',' +
+      nearest.g.position.z.toFixed(0) + ' (' + nearestDist.toFixed(0) + 'm)';
+  } else {
+    dbgNearest.textContent = '(keine geladen!)';
+  }
+  dbgCam.textContent =
+    camera.position.x.toFixed(0) + ',' +
+    camera.position.y.toFixed(0) + ',' +
+    camera.position.z.toFixed(0);
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  dbgLook.textContent =
+    forward.x.toFixed(1) + ',' +
+    forward.y.toFixed(1) + ',' +
+    forward.z.toFixed(1);
+}
+
+function showError(msg) {
+  console.error('[GAME ERROR]', msg);
+  const el = document.getElementById('dbgError');
+  if (el) el.textContent = 'FEHLER: ' + msg;
+}
+
+// Globale Fehler-Handler, damit Probleme sichtbar werden
+window.addEventListener('error', (e) => {
+  showError(e.message + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?'));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  showError('promise: ' + (e.reason?.message || e.reason));
+});
+
 animate();

@@ -61,8 +61,8 @@ export function buildWorld() {
   // Gebaeude in der Mitte und verstreut
   const buildingMat = new THREE.MeshLambertMaterial({ color: 0xd6b48a });
   const roofMat = new THREE.MeshLambertMaterial({ color: 0x8b3a2a });
+  // Das Zentrum bewusst frei lassen, damit Spieler und Bots sich sehen.
   const buildings = [
-    [  0, 0,   0, 20, 14, 20],
     [ 60, 0,  40, 14, 10, 14],
     [-60, 0,  40, 18, 12, 12],
     [ 60, 0, -40, 16, 11, 16],
@@ -90,7 +90,7 @@ export function buildWorld() {
     scene.add(roof);
   }
 
-  // Kisten als Deckung
+  // Kisten als Deckung - bewusst ausserhalb der Spawn- und Bot-Area
   const crateMat = new THREE.MeshLambertMaterial({ color: 0x8b6b3a });
   for (let i = 0; i < 30; i++) {
     const s = 1.5 + Math.random() * 1.2;
@@ -100,8 +100,8 @@ export function buildWorld() {
       s / 2,
       (Math.random() - 0.5) * 260,
     );
-    // Kisten nicht in Gebaeuden spawnen
-    if (Math.hypot(c.position.x, c.position.z) < 16) continue;
+    // Kisten ausserhalb der zentralen Kampfzone halten
+    if (Math.hypot(c.position.x, c.position.z) < 50) continue;
     c.castShadow = true;
     c.receiveShadow = true;
     scene.add(c);
@@ -114,7 +114,7 @@ export function buildWorld() {
   for (let i = 0; i < 50; i++) {
     const tx = (Math.random() - 0.5) * 280;
     const tz = (Math.random() - 0.5) * 280;
-    if (Math.hypot(tx, tz) < 20) continue;
+    if (Math.hypot(tx, tz) < 55) continue;
     const trunk = new THREE.Mesh(
       new THREE.CylinderGeometry(0.5, 0.6, 4, 8),
       trunkMat,

@@ -243,6 +243,25 @@ canvas#game {
 }
 #miniScore b { color: #fff; }
 
+#debugBox {
+  position: fixed;
+  left: 20px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.85);
+  border: 2px solid #ff0066;
+  border-radius: 6px;
+  padding: 10px 14px;
+  color: #fff;
+  font-family: monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  pointer-events: none;
+  min-width: 240px;
+  z-index: 200;
+}
+#debugBox b { color: #ffd166; }
+
 #killFeed {
   position: absolute;
   top: 60px;

@@ -50,16 +50,17 @@ const WEAPONS = {
   shotgun:{ name: 'Schrotflinte', damage: 9, fireRate: 650, range: 30, spread: 0.090, ammo: 6,  reload: 1400, pellets: 8 },
 };
 
+// Spieler spawnen in einem engen Ring um den Bot-Bereich, damit
+// sie sie sofort sehen (aber nicht direkt drinstehen).
 const SPAWN_POINTS = [
-  [  0, 2,   0],
-  [ 40, 2,  40],
-  [-40, 2,  40],
-  [ 40, 2, -40],
-  [-40, 2, -40],
-  [ 70, 2,   0],
-  [-70, 2,   0],
-  [  0, 2,  70],
-  [  0, 2, -70],
+  [ 35, 2,   0],
+  [-35, 2,   0],
+  [  0, 2,  35],
+  [  0, 2, -35],
+  [ 25, 2,  25],
+  [-25, 2,  25],
+  [ 25, 2, -25],
+  [-25, 2, -25],
 ];
 
 function randomSpawn() {
