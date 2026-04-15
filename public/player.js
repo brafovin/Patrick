@@ -9,40 +9,49 @@ export function createRemotePlayer(name, color = 0xff8844) {
   const pantsMat = new THREE.MeshLambertMaterial({ color: 0x223344 });
   const headMat = new THREE.MeshLambertMaterial({ color: 0xffe0bd });
 
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), headMat);
-  head.position.y = 1.65;
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.7, 0.7), headMat);
+  head.position.y = 2.1;
   head.castShadow = true;
   head.userData.isHead = true;
   group.add(head);
 
-  const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.4), skinMat);
-  body.position.y = 0.95;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.15, 0.55), skinMat);
+  body.position.y = 1.2;
   body.castShadow = true;
   group.add(body);
 
-  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), skinMat);
-  leftArm.position.set(-0.45, 1.0, 0);
+  const leftArm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.0, 0.28), skinMat);
+  leftArm.position.set(-0.6, 1.25, 0);
   leftArm.castShadow = true;
   group.add(leftArm);
 
-  const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), skinMat);
-  rightArm.position.set(0.45, 1.0, 0);
+  const rightArm = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.0, 0.28), skinMat);
+  rightArm.position.set(0.6, 1.25, 0);
   rightArm.castShadow = true;
   group.add(rightArm);
 
-  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.9, 0.25), pantsMat);
-  leftLeg.position.set(-0.18, 0.45, 0);
+  const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.1, 0.32), pantsMat);
+  leftLeg.position.set(-0.22, 0.55, 0);
   leftLeg.castShadow = true;
   group.add(leftLeg);
 
-  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.9, 0.25), pantsMat);
-  rightLeg.position.set(0.18, 0.45, 0);
+  const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.32, 1.1, 0.32), pantsMat);
+  rightLeg.position.set(0.22, 0.55, 0);
   rightLeg.castShadow = true;
   group.add(rightLeg);
 
+  // Halo-Ring ueber dem Kopf fuer weithin sichtbare Markierung
+  const haloGeo = new THREE.TorusGeometry(0.7, 0.08, 8, 24);
+  const haloMat = new THREE.MeshBasicMaterial({ color });
+  const halo = new THREE.Mesh(haloGeo, haloMat);
+  halo.position.y = 2.75;
+  halo.rotation.x = Math.PI / 2;
+  group.add(halo);
+  group.userData.halo = halo;
+
   // Namensschild (Sprite)
   const tag = makeNameTag(name);
-  tag.position.y = 2.3;
+  tag.position.y = 3.15;
   group.add(tag);
 
   group.userData = {
@@ -64,7 +73,7 @@ export function updateNameTag(group, name) {
   old.material.map.dispose();
   old.material.dispose();
   const tag = makeNameTag(name);
-  tag.position.y = 2.3;
+  tag.position.y = 3.15;
   group.add(tag);
   group.userData.tag = tag;
   group.userData.nameText = name;

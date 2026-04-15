@@ -135,7 +135,10 @@ function applyDamage(target, attacker, weaponKey, headshot) {
       const t = players.get(target.id);
       if (!t) return;
       t.health = 100;
-      t.position = randomSpawn();
+      // Bots respawnen im Ring, Menschen an zufaelligen Punkten
+      t.position = t.isBot
+        ? botSpawnPoint(Math.floor(Math.random() * BOT_CONFIG.count))
+        : randomSpawn();
       io.emit('respawn', {
         id: t.id,
         position: t.position,
@@ -154,11 +157,12 @@ function applyDamage(target, attacker, weaponKey, headshot) {
 const BOT_CONFIG = {
   count: 5,            // Ziel-Anzahl an Bots
   moveSpeed: 4,        // Einheiten pro Sekunde
-  aggroRange: 90,      // ab wann Bots einen Spieler verfolgen
+  aggroRange: 400,     // praktisch immer den Spieler verfolgen
   shootRange: 55,      // ab wann Bots schiessen
   fireRate: 1400,      // ms zwischen Schuessen
   tickMs: 100,         // AI-Tick-Intervall
-  accuracy: 0.55,      // Chance, dass ein Schuss trifft
+  accuracy: 0.45,      // Chance, dass ein Schuss trifft
+  spawnRadius: 22,     // Bots spawnen in Ring um (0,0,0)
   names: [
     'Zombie', 'Drohne', 'Ninja', 'Bandit', 'Wolf',
     'Spectre', 'Jaeger', 'Phantom', 'Krieger', 'Shadow',
@@ -168,13 +172,21 @@ const BOT_CONFIG = {
 
 let nextBotIndex = 0;
 
+function botSpawnPoint(idx) {
+  // Verteile Bots in einem Ring um das Zentrum, damit der Spieler sie
+  // beim Start auf jeden Fall sehen kann.
+  const angle = (idx / BOT_CONFIG.count) * Math.PI * 2 + Math.random() * 0.2;
+  const r = BOT_CONFIG.spawnRadius + (Math.random() - 0.5) * 6;
+  return [Math.cos(angle) * r, 1.7, Math.sin(angle) * r];
+}
+
 function createBot() {
   const idx = ++nextBotIndex;
   const id = 'bot-' + idx;
   const namePool = BOT_CONFIG.names;
   const name = '[BOT] ' + namePool[(idx - 1) % namePool.length];
   const color = BOT_CONFIG.colors[(idx - 1) % BOT_CONFIG.colors.length];
-  const spawn = randomSpawn();
+  const spawn = botSpawnPoint((idx - 1) % BOT_CONFIG.count);
 
   const bot = {
     id,

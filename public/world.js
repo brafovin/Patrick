@@ -8,7 +8,7 @@ import * as THREE from 'three';
 export function buildWorld() {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x87ceeb);
-  scene.fog = new THREE.Fog(0x87ceeb, 120, 380);
+  scene.fog = new THREE.Fog(0x87ceeb, 200, 480);
 
   // Licht
   const hemi = new THREE.HemisphereLight(0xffffff, 0x334455, 0.9);

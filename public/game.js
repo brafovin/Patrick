@@ -347,11 +347,16 @@ if (!socket) {
     state.selfId = data.selfId;
     if (data.spawn) {
       camera.position.set(data.spawn[0], data.spawn[1] + 1.5, data.spawn[2]);
+      // Beim Spawn zur Kartenmitte blicken (dort stehen die Gegner)
+      camera.lookAt(0, data.spawn[1] + 1.5, 0);
     }
+    let added = 0;
     for (const id in data.players) {
       if (id === state.selfId) continue;
       addRemote(data.players[id]);
+      added += 1;
     }
+    console.log('[init] selfId=' + state.selfId + ' remotes=' + added);
     updatePlayerCount();
   });
 
@@ -376,7 +381,8 @@ if (!socket) {
   socket.on('playerMoved', ({ id, position, rotation, weapon }) => {
     const g = state.remote.get(id);
     if (!g) return;
-    g.userData.targetPos.set(position[0], position[1] - 1.5, position[2]);
+    const footY = Math.max(0, (position[1] || 1.7) - 1.7);
+    g.userData.targetPos.set(position[0], footY, position[2]);
     g.userData.targetRot = rotation[1] || 0;
   });
 
@@ -422,6 +428,7 @@ if (!socket) {
   socket.on('respawn', ({ id, position, health }) => {
     if (id === state.selfId) {
       camera.position.set(position[0], position[1] + 1.5, position[2]);
+      camera.lookAt(0, position[1] + 1.5, 0);
       state.alive = true;
       state.health = health;
       state.velocity.set(0, 0, 0);
@@ -447,12 +454,15 @@ if (!socket) {
 
 function addRemote(p) {
   const g = createRemotePlayer(p.name || 'Spieler', p.color || 0xff8844);
-  g.position.set(p.position[0], p.position[1] - 1.5, p.position[2]);
+  // Fuesse immer auf dem Boden, egal ob der Server Eye-Height oder Foot-Height schickt
+  const footY = Math.max(0, (p.position[1] || 1.7) - 1.7);
+  g.position.set(p.position[0], footY, p.position[2]);
   g.userData.targetPos.copy(g.position);
   g.userData.targetRot = p.rotation ? p.rotation[1] : 0;
   scene.add(g);
   state.remote.set(p.id, g);
   state.remoteData.set(p.id, { name: p.name, health: p.health });
+  console.log('[addRemote] ' + p.id + ' ' + p.name + ' at', g.position.toArray());
 }
 
 function removeRemote(id) {
